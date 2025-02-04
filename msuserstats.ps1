@@ -54,7 +54,7 @@ Import-Module Microsoft.Graph.Users, Microsoft.Graph.Identity.SignIns, Microsoft
 Import-Module ImportExcel
 Import-Module ExchangeOnlineManagement
 
-# Importing Azure Directory Module on Windows platforms
+# Importing Active Directory Module on Windows platforms
 if ($IsWindows) {
     Import-Module ActiveDirectory
 }
@@ -561,7 +561,7 @@ function CreateEntityFiles {
     foreach ($user in $InactiveEntityUsers) {
         $AllInactiveExportUsers.Add( (GetUserStatsExportUser($user)) )
     }
-    $AllInactiveExportUsers | Where-Object { $_.LastActivityDaysCategory -eq $CONF_INACTIVE_KEYWORD -and $_.CleanupException -eq "" } | Export-Excel -Path "$($CONF_ENTITY_OUTPUT_PATH)/All_InactiveUsers_$(Get-Date -Format "yyyyMMdd").xlsx" -ClearSheet
+    $AllInactiveExportUsers | Export-Excel -Path "$($CONF_ENTITY_OUTPUT_PATH)/All_InactiveUsers_$(Get-Date -Format "yyyyMMdd").xlsx" -ClearSheet
 
     # Exporting list of inactive admin users
     $AllInactiveExportAdminUsers = New-Object System.Collections.Generic.List[System.Object]
@@ -1704,7 +1704,7 @@ else {
     if ( $UserType -in "Any", "Member" -and $CONF_CREATE_ENTITY_INACTIVE_USERLISTS ) {
         CreateEntityFiles $requested_users
     }
-    # Create two Excel Exports locally and to Teams Drive
+    # Create two Excel Exports: Workdir and to $CONF_EXCEL_EXPORT_PATH
     $requested_users | Export-Excel -Path "$($CONF_FILE_REQUESTEDTYPE)_$(Get-Date -Format "yyyyMMdd").xlsx" -ClearSheet
     $OUTFILENAME = Split-Path "$($CONF_FILE_REQUESTEDTYPE)_$(Get-Date -Format "yyyyMMdd").xlsx" -leaf
     if ( $CONF_EXCEL_EXPORT_PATH -ne "" -and $CONF_EXCEL_EXPORT_PATH -ne $CONF_MY_WORKDIR ) {
