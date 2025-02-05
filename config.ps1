@@ -12,6 +12,9 @@ $CONF_TENANT_ID = "12345-67890-13c-2143-32fczzzQw93"
 # Include all users from Active Directory
 $CONF_INCLUDE_ACTIVE_DIRECTORY = $false
 
+# Query Exchange Online for mailbox types
+$CONF_QUERY_EXCHANGE_ONLINE = $false
+
 # Days before a user is marked as inactive without a sign-in
 $CONF_INACTIVE_DAYS = 90
 
@@ -41,6 +44,10 @@ $CONF_CREATE_ENTITY_INACTIVE_USERLISTS = $false
 $CONF_ENTITY_FILE = ""
 # Path to create Entity files
 $CONF_ENTITY_OUTPUT_PATH = $CONF_MY_WORKDIR
+# Discover AD admin accounts by searching the AD sAMAccountname with -match
+$CONF_AD_ADMIN_SEARCH = @('admin')
+# Discover EID admin accounts by searching the EID UPN with -match
+$CONF_EID_ADMIN_SEARCH = @('admin')
 
 # Discover account type by searching the AD distinguished name (DN). Contains is used to search inside DN - all lower case
 $CONF_ACCOUNT_TYPE_SEARCH = @{ 

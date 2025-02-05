@@ -99,7 +99,7 @@ class UserStatsUser {
     [string]$EIDMfaGroups = ""
     [string]$EIDMfaAuthMethods = ""
     [string]$EIDBlockedO365 = ""
-    [string]$EXOMailBoxType = "Unchecked"
+    [string]$EXOMailBoxType = ""
     [string]$ADDomain = ""
     [string]$ADUserPrincipalName = ""
     [string]$ADSamAccountName = ""
@@ -265,7 +265,7 @@ function GetGroupMemberShips {
     $groups = @{}
     $GroupMembership = @{}
     # Checking if Group Membership has been configured
-    if ( $CONF_GROUP_MEMBERSHIP.Length -eq 0 ) {
+    if ( $CONF_GROUP_MEMBERSHIP.Count -eq 0 ) {
         return @{}
     }
     
@@ -279,7 +279,7 @@ function GetGroupMemberShips {
     $AllSelectedGroups = Get-MgGroup -All -Filter "startsWith(DisplayName, '$CONF_GROUP_MEMBERSHIP_FILTER_PREFIX')"
     # Iterating groups
     $AllSelectedGroups | ForEach-Object {
-        for ($i = 0; $i -lt $CONF_GROUP_MEMBERSHIP.Length; $i++) {
+        for ($i = 0; $i -lt $CONF_GROUP_MEMBERSHIP.Count; $i++) {
             if ( $_.DisplayName.Contains($CONF_GROUP_MEMBERSHIP[$i]) ) {
                 # Groupname contains one of the keywords
                 $groups[$_.Id] = $_.DisplayName
@@ -565,14 +565,36 @@ function CreateEntityFiles {
 
     # Exporting list of inactive admin users
     $AllInactiveExportAdminUsers = New-Object System.Collections.Generic.List[System.Object]
-    $AllInactiveAdminUsers = $InactiveEntityUsers | Where-Object { $_.ADSamAccountName -match "ad-" -or $_.ADSamAccountName -match "adm" -or $_.EIDUserPrincipalName -match "adm." }
-    foreach ($user in $AllInactiveAdminUsers) {
-        $AllInactiveExportAdminUsers.Add( (GetUserStatsExportUser($user)) )
-        $ExportedEntitiyUsersIDs.Add($user.Id)
+    foreach ($user in $InactiveEntityUsers ) {
+        $match = $false
+        # Matching Entra admins
+        foreach ($expr in $CONF_EID_ADMIN_SEARCH ) {
+            if ( $user.EIDUserPrincipalName -match $expr ) {
+                $match = $true
+                break
+            }
+        }
+        
+        # Matching AD admins if no match yet
+        if ( -not $match ) {
+            foreach ($expr in $CONF_AD_ADMIN_SEARCH ) {
+                if ( $user.ADSamAccountName -match $expr ) {
+                    $match = $true
+                    break
+                }
+            }
+        }
+                
+        # Adding inactive admin to export list
+        if ( $match ) {
+            $AllInactiveExportAdminUsers.Add( (GetUserStatsExportUser($user)) )
+            $ExportedEntitiyUsersIDs.Add($user.Id)
+        }
     }
     # Creating list for inactive admin users
-    $AllInactiveExportAdminUsers | Export-Excel -Path "$($CONF_ENTITY_OUTPUT_PATH)/All_InactiveWeakAdmins_$(Get-Date -Format "yyyyMMdd").xlsx" -ClearSheet
-
+    if ( $AllInactiveExportAdminUsers.Count -gt 0 ) {
+        $AllInactiveExportAdminUsers | Export-Excel -Path "$($CONF_ENTITY_OUTPUT_PATH)/All_InactiveWeakAdmins_$(Get-Date -Format "yyyyMMdd").xlsx" -ClearSheet
+    }
     
     # Creating list for each entity
     foreach ($entity In LoadEntities) {
@@ -762,9 +784,11 @@ function LoadMFAGroups {
     }
 
     # Getting MFA Group Memberships
-    Write-Information "Fetching MFA group memberships..."
-    foreach ($group In $MfaGroups.Keys) {
-        $MfaGroups[$group]['MEMBERS'] = GetNestedGroupMembers -GroupID $group
+    if ( $MfaGroups.Count -gt 0 ) {
+        Write-Information "Fetching MFA group memberships..."
+        foreach ($group In $MfaGroups.Keys) {
+            $MfaGroups[$group]['MEMBERS'] = GetNestedGroupMembers -GroupID $group
+        }
     }
     return $MfaGroups
 }
@@ -942,27 +966,29 @@ function GetUsersCountryOrg {
 #>
 function LoadEXOMailboxes {
     $EXO_MAILBOXES = @{}
-    # Path to import mailboxes if already loaded
-    $EXO_FILEPATH = "$($CONF_MY_WORKDIR)/exo_mailboxes_$(Get-Date -Format "yyyyMMdd").csv"
-    if (Test-Path -Path $EXO_FILEPATH) {
-        Write-Information "Importing EXO mailboxes from $EXO_FILEPATH..."
-        $Exo_Tmp_List = Import-Csv $EXO_FILEPATH -Encoding UTF8 -Delimiter $CONF_CSV_DELIMITER
-        $Exo_Tmp_List.psobject.properties | ForEach-Object {
-            $EXO_MAILBOXES[$_.Name] = $_.Value
+    if ( $CONF_QUERY_EXCHANGE_ONLINE ) {
+        # Path to import mailboxes if already loaded
+        $EXO_FILEPATH = "$($CONF_MY_WORKDIR)/exo_mailboxes_$(Get-Date -Format "yyyyMMdd").csv"
+        if (Test-Path -Path $EXO_FILEPATH) {
+            Write-Information "Importing EXO mailboxes from $EXO_FILEPATH..."
+            $Exo_Tmp_List = Import-Csv $EXO_FILEPATH -Encoding UTF8 -Delimiter $CONF_CSV_DELIMITER
+            $Exo_Tmp_List.psobject.properties | ForEach-Object {
+                $EXO_MAILBOXES[$_.Name] = $_.Value
+            }
         }
-    }
-    else {
-        # Connecting to Exchange Online
-        Write-Host "Connecting to Exchange Online API..."
-        Connect-ExchangeOnline -Device -ShowBanner:$false
-        Write-Information "Fetching mailbox list from Exchange Online. This can take up to 20min..."
-        $Exo_Tmp_List = Get-Recipient -ResultSize unlimited -RecipientTypeDetails SchedulingMailbox,SharedMailbox,RoomMailbox,EquipmentMailbox,UserMailbox
-        Write-Information "Preparing mailbox list..."
-        foreach ($mb in $Exo_Tmp_List) {
-            $EXO_MAILBOXES[$mb.ExternalDirectoryObjectId] = $mb.RecipientTypeDetails
+        else {
+            # Connecting to Exchange Online
+            Write-Host "Connecting to Exchange Online API..."
+            Connect-ExchangeOnline -Device -ShowBanner:$false
+            Write-Information "Fetching mailbox list from Exchange Online. This can take up to 20min..."
+            $Exo_Tmp_List = Get-Recipient -ResultSize unlimited -RecipientTypeDetails SchedulingMailbox,SharedMailbox,RoomMailbox,EquipmentMailbox,UserMailbox
+            Write-Information "Preparing mailbox list..."
+            foreach ($mb in $Exo_Tmp_List) {
+                $EXO_MAILBOXES[$mb.ExternalDirectoryObjectId] = $mb.RecipientTypeDetails
+            }
+            Write-Information "Completed. Creating local copy of mailbox list..."
+            $EXO_MAILBOXES | Export-Csv -Path $EXO_FILEPATH -IncludeTypeInformation -Encoding UTF8 -Delimiter $CONF_CSV_DELIMITER
         }
-        Write-Information "Completed. Creating local copy of mailbox list..."
-        $EXO_MAILBOXES | Export-Csv -Path $EXO_FILEPATH -IncludeTypeInformation -Encoding UTF8 -Delimiter $CONF_CSV_DELIMITER
     }
     return $EXO_MAILBOXES
 }
@@ -1006,7 +1032,9 @@ function LoadPasswordAuditFiles {
             Write-Error "Failed to load Domain Mimikatz File for domain: $domain"
         }
     }
-    Write-Information "Loaded $PassCount Mimikatz accounts with weak passwords"
+    if ( $CONF_MIMIKATZ_DOMAINS.Count -gt 0 ) {
+        Write-Information "Loaded $PassCount Mimikatz accounts with weak passwords"
+    } 
     return $MIMIKATZ
 }
 
@@ -1372,7 +1400,7 @@ function GetUserPasswordAuditResult {
     )
     # Checking Password Audit results for User
     # Creating Mimikatz Variable name
-    if ( $CONF_MIMIKATZ_DOMAINS.Length -gt 0 -and $CONF_MIMIKATZ_DOMAINS -contains $User.ADDomain -and $User.ADDomain -ne "" ) {
+    if ( $CONF_MIMIKATZ_DOMAINS.Count -gt 0 -and $CONF_MIMIKATZ_DOMAINS -contains $User.ADDomain -and $User.ADDomain -ne "" ) {
         $UsersBadPass = $Mimikatz[$User.ADDomain] | Where-Object { $_.samAccountName -eq $User.ADSamAccountName }
         if ( $null -ne $UsersBadPass ) {
             $User.ADPasswordQuality = "Weak"
@@ -1396,7 +1424,7 @@ function GetUserPasswordAuditResult {
         }
     }
     else {
-        if ( $CONF_MIMIKATZ_DOMAINS.Length -gt 0 -and $User.ADDomain -ne "" ) {
+        if ( $CONF_MIMIKATZ_DOMAINS.Count -gt 0 -and $User.ADDomain -ne "" ) {
             Write-Error "Failed to use Mimikatz password list. List not loaded for domain: $($u.ADDomain)"
         }
     }
@@ -1632,7 +1660,7 @@ for ($i = 0; $i -lt $requested_users.Count; $i++) {
             $u.EIDMfaGroups = $Mfa["MfaEnabled"]
             $u.EIDMfaAuthMethods = $Mfa["MfaAuthMethods"]
             # Getting EXO Mailbox
-            if ( $u.UserType -ne "Guest" ) {
+            if ( $u.UserType -ne "Guest" -and $CONF_QUERY_EXCHANGE_ONLINE ) {
                 # Getting Exchange Online Mailbox Type
                 $u.EXOMailBoxType = GetUsersMailboxType -EIDObjectID $U.Id -MailboxHash $EXOMailBoxes
             } 
